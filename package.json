@@ -1,0 +1,22 @@
+{
+  "name": "luxury-estate-scraper",
+  "version": "1.0.0",
+  "description": "Web scraper for luxuryestate.com to extract property data and images.",
+  "main": "scraper.js",
+  "scripts": {
+    "start": "concurrently \"node server.ts\" \"node scraper.js\""
+  },
+  "keywords": [
+    "scraper",
+    "playwright",
+    "real-estate",
+    "automation"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "dependencies": {
+    "concurrently": "^9.2.0",
+    "express": "^5.1.0",
+    "playwright": "^1.44.0"
+  }
+}
