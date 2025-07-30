@@ -1,0 +1,50 @@
+{
+  "id": 130410772,
+  "title": "8 bedroom luxury Villa for sale in Benahavís, Spain",
+  "shortTitle": "Villa for sale in Benahavís",
+  "price": {
+    "formatted": "10,900,000 € EUR",
+    "amount": 10900000,
+    "currency": "€ EUR"
+  },
+  "surface": 958,
+  "bedrooms": 8,
+  "bathrooms": 9,
+  "type": "Villa",
+  "transaction": "sale",
+  "location": {
+    "city": "Marbella",
+    "region": "Andalusia",
+    "country": "Spain"
+  },
+  "description": "",
+  "features": {
+    "exterior": [],
+    "interior": []
+  },
+  "media": {
+    "images": [
+      "https://pic.le-cdn.com/thumbs/1024x768/587/1/properties/Property-176cb016d9b94db3a17082d7f86f4c29-130410772.jpg",
+      "https://pic.le-cdn.com/thumbs/1024x768/587/1/properties/Property-176cb016d9b94db3a17082d7f86f4c29-130410772.jpg",
+      "https://pic.le-cdn.com/thumbs/1024x768/587/2/properties/Property-b3335ceae97369896d481c0538384918-130410772.jpg",
+      "https://pic.le-cdn.com/thumbs/1024x768/587/3/properties/Property-951bf69e8ff64d5a8e4801523445bc9f-130410772.jpg",
+      "https://pic.le-cdn.com/thumbs/1024x768/587/4/properties/Property-9179334170ec1a42374a4d4648e0390f-130410772.jpg",
+      "https://pic.le-cdn.com/thumbs/1024x768/587/5/properties/Property-b68d2a26b37dc85d84151d4485bf979a-130410772.jpg"
+    ],
+    "floorPlans": [],
+    "video": null,
+    "virtualTour": null
+  },
+  "agency": {
+    "name": null,
+    "logo": null,
+    "phone": null,
+    "location": null
+  },
+  "dates": {
+    "created": null,
+    "modified": null
+  },
+  "url": "https://www.luxuryestate.com/p130410772-villa-for-sale-benahavis",
+  "scrapedAt": "2025-07-30T16:30:02.278Z"
+}

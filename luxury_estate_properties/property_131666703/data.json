@@ -1,0 +1,50 @@
+{
+  "id": 131666703,
+  "title": "5 bedroom luxury Villa for sale in Marbella, Andalusia",
+  "shortTitle": "Villa for sale in Marbella",
+  "price": {
+    "formatted": "4,750,000 € EUR",
+    "amount": 4750000,
+    "currency": "€ EUR"
+  },
+  "surface": 713,
+  "bedrooms": 5,
+  "bathrooms": 7,
+  "type": "Villa",
+  "transaction": "sale",
+  "location": {
+    "city": "Marbella",
+    "region": "Andalusia",
+    "country": "Spain"
+  },
+  "description": "",
+  "features": {
+    "exterior": [],
+    "interior": []
+  },
+  "media": {
+    "images": [
+      "https://pic.le-cdn.com/thumbs/1024x768/587/1/properties/Property-88eb4fdc2defad2fe9619ba701bce32a-131666703.jpg",
+      "https://pic.le-cdn.com/thumbs/1024x768/587/1/properties/Property-88eb4fdc2defad2fe9619ba701bce32a-131666703.jpg",
+      "https://pic.le-cdn.com/thumbs/1024x768/587/2/properties/Property-c7b4e12c0ccc444377268316b4d14799-131666703.jpg",
+      "https://pic.le-cdn.com/thumbs/1024x768/587/3/properties/Property-1d0eb3a16bd1dd3193ef0edc11fb796c-131666703.jpg",
+      "https://pic.le-cdn.com/thumbs/1024x768/587/4/properties/Property-5ec99a1efe673902f97beca08ef8ea62-131666703.jpg",
+      "https://pic.le-cdn.com/thumbs/1024x768/587/5/properties/Property-c34dd79f22b67088db2ee3c6dda23a27-131666703.jpg"
+    ],
+    "floorPlans": [],
+    "video": null,
+    "virtualTour": null
+  },
+  "agency": {
+    "name": null,
+    "logo": null,
+    "phone": null,
+    "location": null
+  },
+  "dates": {
+    "created": null,
+    "modified": null
+  },
+  "url": "https://www.luxuryestate.com/p131666703-villa-for-sale-marbella",
+  "scrapedAt": "2025-07-30T16:30:07.627Z"
+}
