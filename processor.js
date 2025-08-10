@@ -1,327 +1,287 @@
+// dependencies
 const { chromium } = require('playwright');
 const { SQSClient, ReceiveMessageCommand, DeleteMessageCommand } = require('@aws-sdk/client-sqs');
+const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
+const { PrismaClient } = require('@prisma/client');
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
 
-const sqsClient = new SQSClient({ 
-  region: 'eu-north-1'
-});
-
+// setup
+const sqsClient = new SQSClient({ region: 'eu-north-1' });
+const s3Client = new S3Client({ region: 'eu-north-1' });
+const prisma = new PrismaClient();
 const queueUrl = 'https://sqs.eu-north-1.amazonaws.com/992382591031/quequescraper.fifo';
-const outputDir = 'luxury_estate_properties';
-const imagesDir = path.join(outputDir, 'images');
-const propertiesJsonPath = path.join(outputDir, 'properties.json');
+const bucketName = 'iberialuxuryestate2';
+const logPath = 'scraper.log';
 
-// Create directories if they don't exist
-if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir);
-if (!fs.existsSync(imagesDir)) fs.mkdirSync(imagesDir);
-
-// Initialize properties.json if it doesn't exist
-if (!fs.existsSync(propertiesJsonPath)) {
-  fs.writeFileSync(propertiesJsonPath, JSON.stringify([], null, 2));
-}
-
+if (!fs.existsSync(logPath)) fs.writeFileSync(logPath, '');
+const logToFile = msg => fs.appendFileSync(logPath, `${new Date().toISOString()} - ${msg}\n`);
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-const startTimer = () => {
-  const start = process.hrtime();
-  return {
-    getElapsed: () => {
-      const diff = process.hrtime(start);
-      return (diff[0] * 1000 + diff[1] / 1000000); 
+// image upload to S3
+async function uploadToS3(url, key) {
+  try {
+    const response = await new Promise((resolve, reject) => {
+      https.get(url, res => {
+        const chunks = [];
+        res.on('data', chunk => chunks.push(chunk));
+        res.on('end', () => resolve(Buffer.concat(chunks)));
+      }).on('error', reject);
+    });
+
+    const command = new PutObjectCommand({
+      Bucket: bucketName,
+      Key: key,
+      Body: response,
+      ContentType: 'image/jpeg'
+    });
+
+    await s3Client.send(command);
+    return `https://${bucketName}.s3.eu-north-1.amazonaws.com/${key}`;
+  } catch (err) {
+    console.error(`Error uploading to S3: ${err.message}`);
+    return null;
+  }
+}
+
+// extract data from page
+async function extractPropertyData(page, url) {
+  try {
+    await page.goto(url, { waitUntil: 'domcontentloaded' });
+    const html = await page.content();
+
+    const hydrationMatch = html.match(/<script type="application\/json" id="properties-hydration">(.*?)<\/script>/);
+    let propertyData = {};
+    if (hydrationMatch) {
+      try {
+        propertyData = JSON.parse(hydrationMatch[1]);
+      } catch (_) {
+        console.warn("Invalid hydration JSON. Falling back.");
+      }
     }
-  };
+
+    const features = await page.evaluate(() => {
+      const featureMap = {};
+      const items = document.querySelectorAll('.feat-item');
+
+      items.forEach(item => {
+        const labelEl = item.querySelector('.feat-label');
+        const valueEl = item.querySelector('.single-value') || item.querySelector('.multiple-values');
+        let label = labelEl?.textContent?.trim().replace(/:$/, '') || labelEl?.textContent?.trim();
+
+        if (label) {
+          featureMap[label] = valueEl ? valueEl.textContent.trim() : true;
+        }
+      });
+
+      return featureMap;
+    });
+
+    const images = await page.evaluate(() => {
+      return Array.from(document.querySelectorAll('img[src*="properties"]'))
+        .map(img => img.src)
+        .filter(src => src && !src.includes('placeholder'));
+    });
+
+    const agencyName = await page.evaluate(() => {
+      const el = document.querySelector('.agency__name-container a');
+      return el ? el.textContent.trim() : null;
+    });
+
+    const description = await page.evaluate(() => {
+      const container = document.querySelector('[data-role="description-text-container"]');
+      const content = container?.querySelector('[data-role="description-text-content"]');
+      return content?.innerText?.trim() || container?.textContent?.trim() || null;
+    });
+
+    if (!propertyData.id) {
+      const reference = features["Reference"] || '';
+      const fallbackId = reference ? reference.replace(/\s+/g, '-').toUpperCase() : `fallback-${Date.now()}`;
+      propertyData = {
+        id: fallbackId,
+        title: `Property ${reference || 'Unknown'}`,
+        price: null,
+        location: {},
+        currency: 'EUR'
+      };
+    }
+
+    return {
+      id: propertyData.id,
+      title: propertyData.title || `Property ${propertyData.id}`,
+      price: propertyData.price?.amount || null,
+      currency: propertyData.price?.currencyCode || 'EUR',
+      location: propertyData.location || {},
+      features,
+      images,
+      agencyName,
+      description,
+      url
+    };
+  } catch (err) {
+    console.error(`Error extracting data from ${url}:`, err);
+    return null;
+  }
+}
+
+const normalizeAmenityField = value => {
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'string') return [value];
+  return [];
 };
 
-// Function to extract property data from HTML
-async function extractPropertyData(page, url) {
-  // Get the page HTML content
-  const html = await page.content();
-  
-  // Extract the main property data from the hydration script
-  const hydrationMatch = html.match(/<script type="application\/json" id="properties-hydration">(.*?)<\/script>/);
-  if (!hydrationMatch) return null;
-  
-  const propertyData = JSON.parse(hydrationMatch[1]);
-  
-  // Extract additional details from the other script tags
-  const galleryMatch = html.match(/<script type="application\/json" id="gallery-hydration">(.*?)<\/script>/);
-  const galleryData = galleryMatch ? JSON.parse(galleryMatch[1]) : {};
-  
-  const featuresMatch = html.match(/<script type="application\/json" id="features-hydration">(.*?)<\/script>/);
-  const featuresData = featuresMatch ? JSON.parse(featuresMatch[1]) : {};
-  
-  const agencyMatch = html.match(/<script type="application\/json" id="agency-hydration">(.*?)<\/script>/);
-  const agencyData = agencyMatch ? JSON.parse(agencyMatch[1]) : {};
-  
-  // Extract description from meta tags
-  const descriptionMatch = html.match(/<meta name="description" content="(.*?)"/);
-  const description = descriptionMatch ? descriptionMatch[1] : '';
-  
-  // Extract features from the extraFeatures data
-  const exteriorFeatures = [];
-  const interiorFeatures = [];
-  
-  if (featuresData.extraFeatures) {
-    featuresData.extraFeatures.forEach(feature => {
-      if (feature.label === 'exteriorAmenities' && feature.value) {
-        try {
-          exteriorFeatures.push(...JSON.parse(feature.value));
-        } catch (e) {
-          console.error('Error parsing exterior features:', e);
-        }
-      }
-      if (feature.label === 'interiorAmenities' && feature.value) {
-        try {
-          interiorFeatures.push(...JSON.parse(feature.value));
-        } catch (e) {
-          console.error('Error parsing interior features:', e);
+const includesAmenity = (list = [], keywords) =>
+  keywords.some(k => list.some(a => a.toLowerCase().includes(k.toLowerCase())));
+
+// process a single URL
+async function processUrl(url) {
+  const browser = await chromium.launch({ headless: true });
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  const startTime = Date.now();
+
+  try {
+    const property = await extractPropertyData(page, url);
+    if (!property) return;
+
+    const exists = await prisma.properties.findFirst({
+      where: { property_reference: `EXT-${property.id}` }
+    });
+    if (exists) return logToFile(`Skipped existing: ${url}`);
+
+    const imageUrls = [];
+    for (let i = 0; i < property.images.length; i++) {
+      const key = `properties/${property.id}_${i}.jpg`;
+      const s3Url = await uploadToS3(property.images[i], key);
+      if (s3Url) imageUrls.push(s3Url);
+    }
+
+    const ext = normalizeAmenityField(property.features['Exterior Amenities']);
+    const int = normalizeAmenityField(property.features['Interior Amenities']);
+
+    const dbProperty = await prisma.properties.create({
+      data: {
+        title: property.title,
+        price: property.price ? parseFloat(property.price.toString().replace(/,/g, '')) : 0,
+        address: property.location?.address || '',
+        city: property.location?.city || '',
+        neighborhood: property.location?.neighborhood || '',
+        province: property.location?.province || '',
+        country: property.location?.country || 'Spain',
+        zip_code: property.location?.zipCode || '',
+        rooms: parseInt(property.features['Bedrooms'] || property.features['Rooms'] || 0),
+        bathrooms: parseInt(property.features['Bathrooms'] || 0),
+        area: parseFloat((property.features['Size'] || '').replace(/[^\d.]/g, '') || 0),
+        property_type: property.features['Type'] || 'Other',
+        currency: property.currency,
+        agency_name: property.agencyName,
+        listing_url: property.url,
+        property_url: property.url,
+        property_reference: `EXT-${property.id}`,
+        description: property.description || '',
+        has_pool: includesAmenity(ext, ['pool']),
+        has_garden: includesAmenity(ext, ['garden']),
+        has_garage: includesAmenity(ext, ['garage']),
+        has_barbeque_area: includesAmenity(ext, ['barbeque area']),
+        has_basement: includesAmenity(ext, ['basement']),
+        has_courtyard: includesAmenity(ext, ['courtyard']),
+        has_disabled_access: includesAmenity(ext, ['disabled access']),
+        has_gated_entry: includesAmenity(ext, ['gated entry']),
+        has_greenhouse: includesAmenity(ext, ['greenhouse']),
+        has_hottub: includesAmenity(ext, ['hottub', 'spa']),
+        has_lawn: includesAmenity(ext, ['lawn']),
+        has_mother_in_law_unit: includesAmenity(ext, ['mother-in-law', 'mother in law']),
+        has_patio: includesAmenity(ext, ['patio']),
+        has_pond: includesAmenity(ext, ['pond']),
+        has_porch: includesAmenity(ext, ['porch']),
+        has_private_patio: includesAmenity(ext, ['private patio']),
+        has_sports_court: includesAmenity(ext, ['sports court']),
+        has_sprinkler_system: includesAmenity(ext, ['sprinkler system']),
+        is_waterfront: includesAmenity(ext, ['waterfront']),
+        has_attic: includesAmenity(int, ['attic']),
+        has_cable_satellite: includesAmenity(int, ['cable', 'satellite']),
+        has_doublepane_windows: includesAmenity(int, ['doublepane windows']),
+        has_elevator: includesAmenity(int, ['elevator']),
+        has_fireplace: includesAmenity(int, ['fireplace']),
+        furnished: includesAmenity(int, ['furnished']),
+        has_hand_rails: includesAmenity(int, ['hand rails']),
+        has_cinema: includesAmenity(int, ['home theater', 'cinema']),
+        has_intercom: includesAmenity(int, ['intercom']),
+        has_jacuzzi: includesAmenity(int, ['jacuzzi', 'jetted bath tub']),
+        has_sauna: includesAmenity(int, ['sauna']),
+        has_security_system: includesAmenity(int, ['security system']),
+        has_skylight: includesAmenity(int, ['skylight']),
+        has_vaulted_ceiling: includesAmenity(int, ['vaulted ceiling']),
+        has_wet_bar: includesAmenity(int, ['wet bar']),
+        has_window_coverings: includesAmenity(int, ['window coverings']),
+        property_images: {
+          create: imageUrls.map((url, i) => ({ image_url: url, is_primary: i === 0 }))
         }
       }
     });
-  }
-  
-  // Extract images from the page
-  const images = await page.evaluate(() => {
-    return Array.from(document.querySelectorAll('img[src*="properties"]'))
-      .map(img => img.src)
-      .filter(src => src && !src.includes('placeholder'));
-  });
-  
-  // Construct the final property object
-  const property = {
-    id: propertyData.id,
-    title: propertyData.title,
-    shortTitle: propertyData.shortTitle || '',
-    price: {
-      formatted: propertyData.price?.amount + ' ' + propertyData.price?.currency || 'N/A',
-      amount: propertyData.price?.raw || 0,
-      currency: propertyData.price?.currency || 'EUR'
-    },
-    surface: propertyData.surface || 0,
-    bedrooms: propertyData.bedrooms || 0,
-    bathrooms: propertyData.bathrooms || 0,
-    type: featuresData.type || 'Villa',
-    transaction: featuresData.transaction || 'sale',
-    location: {
-      city: featuresData.geoInfo?.PPL?.translations?.en_GB || 'Marbella',
-      region: featuresData.geoInfo?.ADM1?.translations?.en_GB || 'Andalusia',
-      country: featuresData.geoInfo?.PCLI?.translations?.en_GB || 'Spain'
-    },
-    description: description,
-    features: {
-      exterior: exteriorFeatures,
-      interior: interiorFeatures
-    },
-    media: {
-      images: images,
-      floorPlans: galleryData.propertyFloorPlans ? galleryData.propertyFloorPlans.map(plan => plan.src) : [],
-      video: galleryData.videoUrl || null,
-      virtualTour: galleryData.virtualTourUrl || null
-    },
-    agency: {
-      name: agencyData.agencyName || null,
-      logo: agencyData.agencyLogo?.img || null,
-      phone: agencyData.agencyPhoneCrypted || null,
-      location: agencyData.agencyLocation || null
-    },
-    dates: {
-      created: featuresData.creationTime || null,
-      modified: featuresData.modificationTime || null
-    },
-    url: url,
-    scrapedAt: new Date().toISOString()
-  };
-  
-  return property;
-}
 
-async function receiveMessages() {
-  const params = {
-    QueueUrl: queueUrl,
-    MaxNumberOfMessages: 1,
-    VisibilityTimeout: 300, 
-    WaitTimeSeconds: 10, 
-    AttributeNames: ['All'],
-    MessageAttributeNames: ['All']
-  };
-
-  try {
-    const command = new ReceiveMessageCommand(params);
-    const data = await sqsClient.send(command);
-    return data.Messages || [];
-  } catch (error) {
-    console.error('Error receiving messages:', error);
-    return [];
+    const time = ((Date.now() - startTime) / 1000).toFixed(2);
+    logToFile(`Created property: ${dbProperty.id} (${property.title}) in ${time}s`);
+  } catch (err) {
+    console.error(`Error processing ${url}:`, err);
+    logToFile(`Error processing ${url}: ${err.message}`);
+  } finally {
+    await browser.close();
   }
 }
 
-async function deleteMessage(receiptHandle) {
-  const params = {
-    QueueUrl: queueUrl,
-    ReceiptHandle: receiptHandle
-  };
+// polling loop
+async function pollQueue() {
+  while (true) {
+    const command = new ReceiveMessageCommand({
+      QueueUrl: queueUrl,
+      MaxNumberOfMessages: 1,
+      WaitTimeSeconds: 10
+    });
 
-  try {
-    const command = new DeleteMessageCommand(params);
-    await sqsClient.send(command);
-    return true;
-  } catch (error) {
-    console.error('Error deleting message:', error);
-    return false;
-  }
-}
+    try {
+      const { Messages } = await sqsClient.send(command);
+      if (!Messages || Messages.length === 0) continue;
 
-async function savePropertyToJson(property) {
-  try {
-    // Read existing properties
-    const existingData = fs.readFileSync(propertiesJsonPath, 'utf8');
-    const properties = JSON.parse(existingData);
-    
-    // Check if property already exists
-    const existingIndex = properties.findIndex(p => p.id === property.id);
-    
-    if (existingIndex >= 0) {
-      // Update existing property
-      properties[existingIndex] = property;
-    } else {
-      // Add new property
-      properties.push(property);
+      for (const message of Messages) {
+        const body = JSON.parse(message.Body);
+        const url = body.url;
+
+        console.log(`Processing: ${url}`);
+        logToFile(`Processing: ${url}`);
+
+        await processUrl(url);
+
+        const deleteCommand = new DeleteMessageCommand({
+          QueueUrl: queueUrl,
+          ReceiptHandle: message.ReceiptHandle
+        });
+        await sqsClient.send(deleteCommand);
+        console.log(`Completed: ${url}`);
+      }
+    } catch (err) {
+      console.error('Polling error:', err);
+      logToFile(`Polling error: ${err.message}`);
+      await delay(5000);
     }
-    
-    // Save back to file
-    fs.writeFileSync(propertiesJsonPath, JSON.stringify(properties, null, 2));
-    return true;
-  } catch (error) {
-    console.error('Error saving property to JSON:', error);
-    return false;
   }
 }
+
+// graceful shutdown
+process.on('SIGINT', async () => {
+  console.log('Shutting down...');
+  await prisma.$disconnect();
+  process.exit();
+});
 
 (async () => {
-  const globalTimer = startTimer();
-  let totalPropertiesProcessed = 0;
-  let consecutiveEmptyReceives = 0;
-  const maxEmptyReceivesBeforeExit = 5;
-  
-  console.log('Starting property processor...');
-  
-  const browser = await chromium.launch({ 
-    headless: true,
-    timeout: 60000
-  });
-  
-  const context = await browser.newContext({
-    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-    viewport: null,
-    ignoreHTTPSErrors: true
-  });
-
   try {
-    while (true) {
-      const messages = await receiveMessages();
-      
-      if (messages.length === 0) {
-        consecutiveEmptyReceives++;
-        console.log(`[${(globalTimer.getElapsed()/1000).toFixed(1)}s] No messages in queue (attempt ${consecutiveEmptyReceives}/${maxEmptyReceivesBeforeExit})`);
-        
-        if (consecutiveEmptyReceives >= maxEmptyReceivesBeforeExit) {
-          console.log('Maximum empty receives reached. Exiting...');
-          break;
-        }
-        
-        await delay(5000);
-        continue;
-      }
-
-      consecutiveEmptyReceives = 0; 
-      
-      for (const message of messages) {
-        const propertyTimer = startTimer();
-        let page;
-        
-        try {
-          const { url, urlNumber } = JSON.parse(message.Body);
-          console.log(`\n[${(globalTimer.getElapsed()/1000).toFixed(1)}s] Processing property ${urlNumber}: ${url}`);
-
-          page = await context.newPage();
-          await delay(2000 + Math.random() * 3000);
-          
-          console.log(`[${(globalTimer.getElapsed()/1000).toFixed(1)}s] Navigating to property...`);
-          await page.goto(url, { 
-            waitUntil: 'domcontentloaded', 
-            timeout: 60000 
-          });
-
-          // Wait for property content to load
-          console.log(`[${(globalTimer.getElapsed()/1000).toFixed(1)}s] Waiting for property content...`);
-          await page.waitForSelector('.lx-property__mainContent', { timeout: 15000 });
-
-          // Extract property data using our improved extractor
-          console.log(`[${(globalTimer.getElapsed()/1000).toFixed(1)}s] Extracting property data...`);
-          const property = await extractPropertyData(page, url);
-          
-          if (!property) {
-            throw new Error('Failed to extract property data');
-          }
-
-          // Create directory for this property's data
-          const propertyId = property.id || url.split('/').pop() || Date.now();
-          const propertyDir = path.join(outputDir, `property_${propertyId}`);
-          if (!fs.existsSync(propertyDir)) fs.mkdirSync(propertyDir);
-
-          // Save property data to individual file
-          fs.writeFileSync(
-            path.join(propertyDir, 'data.json'),
-            JSON.stringify(property, null, 2)
-          );
-
-          // Save to consolidated properties.json
-          const saveSuccess = await savePropertyToJson(property);
-          if (!saveSuccess) {
-            throw new Error('Failed to save property to properties.json');
-          }
-
-          // Download images
-          console.log(`[${(globalTimer.getElapsed()/1000).toFixed(1)}s] Found ${property.media.images.length} images`);
-          for (let i = 0; i < property.media.images.length; i++) {
-            try {
-              const imageUrl = property.media.images[i];
-              const imagePath = path.join(propertyDir, `image_${i + 1}.jpg`);
-              
-              const response = await page.goto(imageUrl, { waitUntil: 'domcontentloaded' });
-              const buffer = await response.body();
-              fs.writeFileSync(imagePath, buffer);
-              
-              console.log(`[${(globalTimer.getElapsed()/1000).toFixed(1)}s] Downloaded image ${i + 1}/${property.media.images.length}`);
-            } catch (error) {
-              console.error(`Error downloading image ${i + 1}:`, error.message);
-            }
-          }
-
-          // Delete message from queue after successful processing
-          const deleteSuccess = await deleteMessage(message.ReceiptHandle);
-          if (!deleteSuccess) {
-            throw new Error('Failed to delete message from queue');
-          }
-
-          totalPropertiesProcessed++;
-          console.log(`[${(globalTimer.getElapsed()/1000).toFixed(1)}s] Successfully processed property ${urlNumber}`);
-
-        } catch (error) {
-          console.error(`[${(globalTimer.getElapsed()/1000).toFixed(1)}s] Error processing property:`, error.message);
-        } finally {
-          if (page) {
-            await page.close().catch(e => console.error('Error closing page:', e));
-          }
-        }
-      }
-    }
-  } catch (error) {
-    console.error('Main error:', error);
-  } finally {
-    await context.close().catch(e => console.error('Error closing context:', e));
-    await browser.close().catch(e => console.error('Error closing browser:', e));
-    console.log(`\n[${(globalTimer.getElapsed()/1000).toFixed(1)}s] Browser closed. Processed ${totalPropertiesProcessed} properties.`);
+    await pollQueue();
+  } catch (err) {
+    console.error('Fatal error:', err);
+    logToFile(`Fatal error: ${err.message}`);
+    await prisma.$disconnect();
+    process.exit(1);
   }
 })();

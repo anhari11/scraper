@@ -1,0 +1,293 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = "postgresql://adamanhari:adamanhari@localhost:5432/iberialuxe"
+}
+
+model favorites {
+  id          Int         @id @default(autoincrement())
+  user_id     Int?
+  property_id Int?
+  created_at  DateTime?   @default(now()) @db.Timestamp(6)
+
+  properties  properties? @relation(fields: [property_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users       users?      @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([user_id, property_id]) // Sin duplicados
+}
+
+model property_views {
+  id          Int      @id @default(autoincrement())
+  property_id Int
+  user_id     Int?     // Nullable for anonymous users
+  anon_token  String?  // Track anonymous users
+  viewed_at   DateTime @default(now())
+
+  properties  properties @relation(fields: [property_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users       users?     @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([property_id])
+  @@index([user_id])
+  @@index([anon_token])
+}
+
+
+model messages {
+  id                                Int         @id @default(autoincrement())
+  sender_id                         Int?
+  receiver_id                       Int?
+  property_id                       Int?
+  content                           String?
+  sent_at                           DateTime?   @default(now()) @db.Timestamp(6)
+  is_read                           Boolean?    @default(false)
+  properties                        properties? @relation(fields: [property_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users_messages_receiver_idTousers users?      @relation("messages_receiver_idTousers", fields: [receiver_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users_messages_sender_idTousers   users?      @relation("messages_sender_idTousers", fields: [sender_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+model properties {
+  id                       Int                @id @default(autoincrement())
+  property_url           String?            @db.VarChar(100)
+  user_id                  Int?
+  title                    String             @db.VarChar(255)
+  description              String?
+  price                    Decimal            @db.Decimal(12, 2)
+  address                  String?
+  city                     String?            @db.VarChar(100)
+  neighborhood             String?            @db.VarChar(100)
+  province                 String?            @db.VarChar(100)
+  country                  String?            @db.VarChar(100)
+  zip_code                 String?            @db.VarChar(15)
+  rooms                    Int?
+  bathrooms                Int?
+  area                     Float?
+  has_pool                 Boolean?           @default(false)
+  has_garden               Boolean?           @default(false)
+  has_garage               Boolean?           @default(false)
+  near_beach               Boolean?           @default(false)
+  views_count              Int                @default(0)
+
+  has_jacuzzi              Boolean?           @default(false)
+  has_sauna                Boolean?           @default(false)
+  has_gym                  Boolean?           @default(false)
+  has_terrace              Boolean?           @default(false)
+  has_bar                  Boolean?           @default(false)
+  has_elevator             Boolean?           @default(false)
+  has_cinema               Boolean?           @default(false)
+  has_tennis_court         Boolean?           @default(false)
+  has_sea_view             Boolean?           @default(false)
+  has_helipad              Boolean?           @default(false)
+  has_fireplace            Boolean?           @default(false)
+  furnished                Boolean?           @default(false)
+
+  // New fields for amenities
+  has_barbeque_area        Boolean?           @default(false)
+  has_basement             Boolean?           @default(false)
+  has_courtyard            Boolean?           @default(false)
+  has_disabled_access      Boolean?           @default(false)
+  has_gated_entry          Boolean?           @default(false)
+  has_greenhouse           Boolean?           @default(false)
+  has_hottub               Boolean?           @default(false)
+  has_lawn                 Boolean?           @default(false)
+  has_mother_in_law_unit   Boolean?           @default(false)
+  has_patio                Boolean?           @default(false)
+  has_pond                 Boolean?           @default(false)
+  has_porch                Boolean?           @default(false)
+  has_private_patio        Boolean?           @default(false)
+  has_sports_court         Boolean?           @default(false)
+  has_sprinkler_system     Boolean?           @default(false)
+  is_waterfront            Boolean?           @default(false)
+
+  has_attic                Boolean?           @default(false)
+  has_cable_satellite      Boolean?           @default(false)
+  has_doublepane_windows   Boolean?           @default(false)
+  has_hand_rails           Boolean?           @default(false)
+  has_intercom             Boolean?           @default(false)
+  has_security_system      Boolean?           @default(false)
+  has_skylight             Boolean?           @default(false)
+  has_vaulted_ceiling      Boolean?           @default(false)
+  has_wet_bar              Boolean?           @default(false)
+  has_window_coverings     Boolean?           @default(false)
+
+  floor                    Int?
+  floor_total              Int?
+  property_type            String?            @db.VarChar(50)
+  status                   String?            @default("available") @db.VarChar(20)
+  created_at               DateTime?          @default(now()) @db.Timestamp(6)
+  updated_at               DateTime?          @default(now()) @db.Timestamp(6)
+  year_built               Int?
+  energy_rating            String?            @db.VarChar(5)
+  cooling_system           String?            @db.VarChar(100)
+  heating_source           String?            @db.VarChar(100)
+  condition                String?            @db.VarChar(50)
+  listing_url              String?            @db.VarChar(2083)
+  agency_name              String?            @db.VarChar(100)
+  agency_phone             String?            @db.VarChar(25)
+  currency                 String?            @db.VarChar(10)
+  property_reference       String?            @db.VarChar(100)
+  lot_area                 Float?
+  orientation              String?            @db.VarChar(50)
+  ownership_type           String?            @db.VarChar(50)
+  monthly_community_fee    Decimal?           @db.Decimal(10, 2)
+
+  // Relations
+  favorites                favorites[]
+  messages                 messages[]
+  users                    users?             @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  property_images          property_images[]
+  property_reports         property_reports[]
+  reservations             reservations[]
+  transactions             transactions[]
+  property_views           property_views[]
+  anonymous_property_views anonymous_property_views[]
+
+  exterior_size          Float?
+exterior_type          String?            @db.VarChar(50)
+floor_type             String?            @db.VarChar(50)
+garden_type            String?            @db.VarChar(50)
+roof_type              String?            @db.VarChar(50)
+architectural_style    String?            @db.VarChar(50)
+balcony_count          Int?
+kitchen_count          Int?
+parking_type           String?            @db.VarChar(50)
+gas_emission_class     String?            @db.VarChar(20)
+general_view           String?            @db.VarChar(100)  // For views other than sea
+exterior_amenities     String?            @db.Text          // Could be JSON array
+interior_amenities     String?            @db.Text  
+
+ 
+}
+
+
+
+model property_images {
+  id          Int         @id @default(autoincrement())
+  property_id Int?
+  image_url   String
+  is_primary  Boolean?    @default(false)
+  properties  properties? @relation(fields: [property_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model property_reports {
+  id          Int         @id @default(autoincrement())
+  user_id     Int?
+  property_id Int?
+  reason      String?
+  created_at  DateTime?   @default(now()) @db.Timestamp(6)
+  properties  properties? @relation(fields: [property_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users       users?      @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model reservations {
+  id             Int         @id @default(autoincrement())
+  property_id    Int?
+  user_id        Int?
+  scheduled_date DateTime    @db.Timestamp(6)
+  status         String?     @default("pending") @db.VarChar(20)
+  created_at     DateTime?   @default(now()) @db.Timestamp(6)
+  properties     properties? @relation(fields: [property_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users          users?      @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model reviews {
+  id                                    Int       @id @default(autoincrement())
+  reviewer_id                           Int?
+  reviewed_user_id                      Int?
+  rating                                Int?
+  comment                               String?
+  created_at                            DateTime? @default(now()) @db.Timestamp(6)
+  users_reviews_reviewed_user_idTousers users?    @relation("reviews_reviewed_user_idTousers", fields: [reviewed_user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users_reviews_reviewer_idTousers      users?    @relation("reviews_reviewer_idTousers", fields: [reviewer_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model search_history {
+  id           Int       @id @default(autoincrement())
+  user_id      Int?
+  query        String
+  city         String?   @db.VarChar(100)
+  neighborhood String?   @db.VarChar(100)
+  min_price    Decimal?  @db.Decimal(12, 2)
+  max_price    Decimal?  @db.Decimal(12, 2)
+  near_beach   Boolean?
+  created_at   DateTime? @default(now()) @db.Timestamp(6)
+  users        users?    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model transactions {
+  id                                  Int         @id @default(autoincrement())
+  buyer_id                            Int?
+  seller_id                           Int?
+  property_id                         Int?
+  amount                              Decimal     @db.Decimal(12, 2)
+  transaction_date                    DateTime?   @default(now()) @db.Timestamp(6)
+  status                              String?     @default("pending") @db.VarChar(50)
+  users_transactions_buyer_idTousers  users?      @relation("transactions_buyer_idTousers", fields: [buyer_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  properties                          properties? @relation(fields: [property_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users_transactions_seller_idTousers users?      @relation("transactions_seller_idTousers", fields: [seller_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+
+model user_followers {
+  id           Int      @id @default(autoincrement())
+  follower_id  Int
+  followed_id Int
+  followed_at  DateTime? @default(now())
+
+  follower   users @relation("FollowedBy", fields: [follower_id], references: [id], onDelete: Cascade)
+  following  users @relation("Following", fields: [followed_id], references: [id], onDelete: Cascade)
+
+  @@unique([follower_id, followed_id])
+}
+
+model users {
+  id          Int     @id @default(autoincrement())
+  name        String  @db.VarChar(100)
+  email       String  @unique @db.VarChar(100)
+  password_hash String?
+  phone       String? @db.VarChar(20)
+  avatar_url  String?
+  bio         String?
+  created_at  DateTime? @default(now()) @db.Timestamp(6)
+  updated_at  DateTime? @default(now()) @db.Timestamp(6)
+
+  // Relaciones con otras tablas...
+  favorites                                  favorites[]
+  messages_messages_receiver_idTousers       messages[]         @relation("messages_receiver_idTousers")
+  messages_messages_sender_idTousers         messages[]         @relation("messages_sender_idTousers")
+  properties                                 properties[]
+  property_reports                           property_reports[]
+  reservations                               reservations[]
+  reviews_reviews_reviewed_user_idTousers    reviews[]          @relation("reviews_reviewed_user_idTousers")
+  reviews_reviews_reviewer_idTousers         reviews[]          @relation("reviews_reviewer_idTousers")
+  search_history                             search_history[]
+  transactions_transactions_buyer_idTousers  transactions[]     @relation("transactions_buyer_idTousers")
+  transactions_transactions_seller_idTousers transactions[]     @relation("transactions_seller_idTousers")
+  property_views                             property_views[]
+
+  // 🆕 Relaciones para seguidores
+  followedBy user_followers[] @relation("FollowedBy")  // Usuarios que siguen a este usuario
+  following user_followers[]  @relation("Following")   // Usuarios a los que este usuario sigue
+}
+
+
+
+
+model anonymous_property_views {
+  id            Int       @id @default(autoincrement())
+  session_id    String    @db.VarChar(255) 
+  property_id   Int
+  viewed_at     DateTime  @default(now()) @db.Timestamp(6)
+  ip_address    String?   @db.VarChar(45) 
+  
+
+  properties properties @relation(fields: [property_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([session_id])
+}
+
+
+
+
+
