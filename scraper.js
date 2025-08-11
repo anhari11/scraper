@@ -1,22 +1,27 @@
 const { chromium } = require('playwright');
 const { SQSClient, ReceiveMessageCommand, DeleteMessageCommand } = require('@aws-sdk/client-sqs');
+const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
 const fs = require('fs');
 const path = require('path');
 
+// AWS Clients Configuration
 const sqsClient = new SQSClient({ 
-  region: 'eu-north-1'
+  region: 'eu-west-3'
 });
 
-const queueUrl = 'https://sqs.eu-north-1.amazonaws.com/992382591031/quequescraper.fifo';
+const s3Client = new S3Client({
+  region: 'eu-west-3'
+});
+
+
+const queueUrl = 'https://sqs.eu-west-3.amazonaws.com/992382591031/quequescraper.fifo';
 const outputDir = 'luxury_estate_properties';
-const imagesDir = path.join(outputDir, 'images');
 const propertiesJsonPath = path.join(outputDir, 'properties.json');
+const S3_BUCKET = 'iberialuxecdn1';
+const PROXY_SERVER = 'http://proxyloadbalancer.internal:3128';
 
 
 if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir);
-if (!fs.existsSync(imagesDir)) fs.mkdirSync(imagesDir);
-
-
 if (!fs.existsSync(propertiesJsonPath)) {
   fs.writeFileSync(propertiesJsonPath, JSON.stringify([], null, 2));
 }
@@ -33,10 +38,9 @@ const startTimer = () => {
   };
 };
 
-
+// Image extraction function
 async function extractAllImages(page) {
   try {
-
     const galleryButton = await page.$('.gallery__all-media-btn');
     if (!galleryButton) {
       console.log('No gallery button found');
@@ -44,33 +48,27 @@ async function extractAllImages(page) {
     }
 
     await galleryButton.click();
-    await delay(2000); 
-
+    await delay(2000);
 
     await page.waitForSelector('.gallery__carousel-track', { timeout: 10000 });
-
 
     const imageElements = await page.$$('.gallery__carousel-track img.gallery__image');
     const imageUrls = [];
 
-
     for (const img of imageElements) {
       const src = await img.getAttribute('src');
       if (src && !src.includes('placeholder')) {
- 
         const fullSizeUrl = src.replace('/thumbs/1024x768/', '/');
         imageUrls.push(fullSizeUrl);
       }
     }
 
-    // Close the gallery
     const closeButton = await page.$('.gallery__close');
     if (closeButton) {
       await closeButton.click();
       await delay(500);
     }
 
-    // Remove duplicates
     return [...new Set(imageUrls)];
   } catch (error) {
     console.error('Error extracting images from gallery:', error);
@@ -78,33 +76,27 @@ async function extractAllImages(page) {
   }
 }
 
-// Function to extract agency contact info from modal
+// Agency contact extraction
 async function extractAgencyContactInfo(page) {
   try {
-    // Click the phone button to open the modal
     const phoneButton = await page.$('button.agency__contact-phone');
     if (!phoneButton) return null;
 
     await phoneButton.click();
-    await delay(1000); // Wait for modal to open
+    await delay(1000);
 
-    // Wait for modal to appear
     await page.waitForSelector('.modal__overlay', { timeout: 5000 });
 
-    // Extract agency name from the main page (not modal)
     const agencyName = await page.$eval('.agency__name-container a', el => el.textContent.trim());
-
-
     const phoneNumber = await page.$eval('.telephone-number', el => {
       const text = el.textContent.trim();
       return text.replace(/\D/g, ''); 
     });
 
-
     const closeButton = await page.$('.modal__close');
     if (closeButton) {
       await closeButton.click();
-      await delay(500); // Wait for modal to close
+      await delay(500);
     }
 
     return {
@@ -117,18 +109,14 @@ async function extractAgencyContactInfo(page) {
   }
 }
 
-// Function to extract property data from HTML
+// Property data extraction
 async function extractPropertyData(page, url) {
-  // Get the page HTML content
   const html = await page.content();
   
-  // Extract the main property data from the hydration script
   const hydrationMatch = html.match(/<script type="application\/json" id="properties-hydration">(.*?)<\/script>/);
   if (!hydrationMatch) return null;
   
   const propertyData = JSON.parse(hydrationMatch[1]);
-  
- 
   const galleryMatch = html.match(/<script type="application\/json" id="gallery-hydration">(.*?)<\/script>/);
   const galleryData = galleryMatch ? JSON.parse(galleryMatch[1]) : {};
   
@@ -137,11 +125,9 @@ async function extractPropertyData(page, url) {
   
   const agencyMatch = html.match(/<script type="application\/json" id="agency-hydration">(.*?)<\/script>/);
   const agencyData = agencyMatch ? JSON.parse(agencyMatch[1]) : {};
-  
 
   const descriptionMatch = html.match(/<meta name="description" content="(.*?)"/);
   const description = descriptionMatch ? descriptionMatch[1] : '';
-  
 
   const exteriorFeatures = [];
   const interiorFeatures = [];
@@ -165,14 +151,10 @@ async function extractPropertyData(page, url) {
     });
   }
   
-  // Extract images from gallery
   const images = await extractAllImages(page);
-  
-  // Extract agency contact info from modal
   const agencyContactInfo = await extractAgencyContactInfo(page);
   
-  // Construct the final property object
-  const property = {
+  return {
     id: propertyData.id,
     title: propertyData.title,
     shortTitle: propertyData.shortTitle || '',
@@ -215,16 +197,15 @@ async function extractPropertyData(page, url) {
     url: url,
     scrapedAt: new Date().toISOString()
   };
-  
-  return property;
 }
 
+// SQS Functions
 async function receiveMessages() {
   const params = {
     QueueUrl: queueUrl,
     MaxNumberOfMessages: 1,
-    VisibilityTimeout: 300, 
-    WaitTimeSeconds: 10, 
+    VisibilityTimeout: 300,
+    WaitTimeSeconds: 10,
     AttributeNames: ['All'],
     MessageAttributeNames: ['All']
   };
@@ -255,24 +236,38 @@ async function deleteMessage(receiptHandle) {
   }
 }
 
+// S3 Upload Function
+async function uploadToS3(imageBuffer, key, contentType = 'image/jpeg') {
+  const params = {
+    Bucket: S3_BUCKET,
+    Key: key,
+    Body: imageBuffer,
+    ContentType: contentType
+  };
+
+  try {
+    await s3Client.send(new PutObjectCommand(params));
+    return `https://${S3_BUCKET}.s3.eu-west-3.amazonaws.com/${key}`;
+  } catch (error) {
+    console.error('Error uploading to S3:', error);
+    throw error;
+  }
+}
+
+// Save property data
 async function savePropertyToJson(property) {
   try {
-    // Read existing properties
     const existingData = fs.readFileSync(propertiesJsonPath, 'utf8');
     const properties = JSON.parse(existingData);
     
-    // Check if property already exists
     const existingIndex = properties.findIndex(p => p.id === property.id);
     
     if (existingIndex >= 0) {
-      // Update existing property
       properties[existingIndex] = property;
     } else {
-      // Add new property
       properties.push(property);
     }
     
-    // Save back to file
     fs.writeFileSync(propertiesJsonPath, JSON.stringify(properties, null, 2));
     return true;
   } catch (error) {
@@ -281,19 +276,7 @@ async function savePropertyToJson(property) {
   }
 }
 
-
-async function downloadImage(page, url, destination) {
-  try {
-    const response = await page.goto(url, { waitUntil: 'domcontentloaded' });
-    const buffer = await response.body();
-    fs.writeFileSync(destination, buffer);
-    return true;
-  } catch (error) {
-    console.error(`Error downloading image ${url}:`, error.message);
-    return false;
-  }
-}
-
+// Main execution
 (async () => {
   const globalTimer = startTimer();
   let totalPropertiesProcessed = 0;
@@ -304,7 +287,12 @@ async function downloadImage(page, url, destination) {
   
   const browser = await chromium.launch({ 
     headless: true,
-    timeout: 60000
+    timeout: 60000,
+    proxy: {
+      server: PROXY_SERVER,
+      username: process.env.PROXY_USERNAME || '',
+      password: process.env.PROXY_PASSWORD || ''
+    }
   });
   
   const context = await browser.newContext({
@@ -330,7 +318,7 @@ async function downloadImage(page, url, destination) {
         continue;
       }
 
-      consecutiveEmptyReceives = 0; 
+      consecutiveEmptyReceives = 0;
       
       for (const message of messages) {
         const propertyTimer = startTimer();
@@ -349,63 +337,56 @@ async function downloadImage(page, url, destination) {
             timeout: 60000 
           });
 
-          // Wait for property content to load
-          console.log(`[${(globalTimer.getElapsed()/1000).toFixed(1)}s] Waiting for property content...`);
           await page.waitForSelector('.lx-property__mainContent', { timeout: 15000 });
-
-          // Extract property data using our improved extractor
-          console.log(`[${(globalTimer.getElapsed()/1000).toFixed(1)}s] Extracting property data...`);
           const property = await extractPropertyData(page, url);
           
           if (!property) {
             throw new Error('Failed to extract property data');
           }
 
-          // Print agency info
           console.log(`[${(globalTimer.getElapsed()/1000).toFixed(1)}s] Agency: ${property.agency.name}`);
           console.log(`[${(globalTimer.getElapsed()/1000).toFixed(1)}s] Phone: ${property.agency.phone}`);
           console.log(`[${(globalTimer.getElapsed()/1000).toFixed(1)}s] Found ${property.media.images.length} images`);
 
-          // Create directory for this property's data
-          const propertyId = property.id || url.split('/').pop() || Date.now();
-          const propertyDir = path.join(outputDir, `property_${propertyId}`);
-          if (!fs.existsSync(propertyDir)) fs.mkdirSync(propertyDir);
-
-          // Save property data to individual file
-          fs.writeFileSync(
-            path.join(propertyDir, 'data.json'),
-            JSON.stringify(property, null, 2)
+          // Process images and upload to S3
+          const minImages = 15;
+          const maxImages = 21;
+          const imagesToProcess = Math.min(
+            property.media.images.length,
+            Math.floor(Math.random() * (maxImages - minImages + 1)) + minImages
           );
+          
+          console.log(`[${(globalTimer.getElapsed()/1000).toFixed(1)}s] Processing ${imagesToProcess} of ${property.media.images.length} images to S3`);
 
-          // Save to consolidated properties.json
+          const shuffledImages = [...property.media.images].sort(() => 0.5 - Math.random());
+          const s3ImageUrls = [];
+          
+          for (let i = 0; i < Math.min(imagesToProcess, shuffledImages.length); i++) {
+            const imageUrl = shuffledImages[i];
+            try {
+              const response = await page.goto(imageUrl, { waitUntil: 'domcontentloaded' });
+              const buffer = await response.body();
+              
+              const imageKey = `properties/${property.id}/image_${i + 1}.jpg`;
+              const s3Url = await uploadToS3(buffer, imageKey);
+              s3ImageUrls.push(s3Url);
+              
+              console.log(`[${(globalTimer.getElapsed()/1000).toFixed(1)}s] Uploaded image ${i + 1}/${imagesToProcess} to S3`);
+            } catch (error) {
+              console.error(`Error processing image ${i + 1}:`, error.message);
+            }
+          }
+
+          // Update property with S3 URLs
+          property.media.images = s3ImageUrls;
+
+          // Save property data
           const saveSuccess = await savePropertyToJson(property);
           if (!saveSuccess) {
             throw new Error('Failed to save property to properties.json');
           }
 
-          // Download random number of images between 15-21 (or all if less available)
-          const minImages = 15;
-          const maxImages = 21;
-          const imagesToDownload = Math.min(
-            property.media.images.length,
-            Math.floor(Math.random() * (maxImages - minImages + 1)) + minImages
-          );
-          
-          console.log(`[${(globalTimer.getElapsed()/1000).toFixed(1)}s] Downloading ${imagesToDownload} of ${property.media.images.length} available images`);
-
-          // Shuffle the images array to get random selection
-          const shuffledImages = [...property.media.images].sort(() => 0.5 - Math.random());
-          
-          // Download the selected number of images
-          for (let i = 0; i < Math.min(imagesToDownload, shuffledImages.length); i++) {
-            const imageUrl = shuffledImages[i];
-            const imagePath = path.join(propertyDir, `image_${i + 1}.jpg`);
-            
-            await downloadImage(page, imageUrl, imagePath);
-            console.log(`[${(globalTimer.getElapsed()/1000).toFixed(1)}s] Downloaded image ${i + 1}/${imagesToDownload}`);
-          }
-
-          // Delete message from queue after successful processing
+          // Delete message from queue
           const deleteSuccess = await deleteMessage(message.ReceiptHandle);
           if (!deleteSuccess) {
             throw new Error('Failed to delete message from queue');

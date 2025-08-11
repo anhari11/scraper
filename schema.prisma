@@ -4,7 +4,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = "postgresql://adamanhari:adamanhari@localhost:5432/iberialuxe"
+  url      = "postgresql://postgres:Pama6677@@databaseiberialuxe1.internal:5432/iberialuxe"
 }
 
 model favorites {
