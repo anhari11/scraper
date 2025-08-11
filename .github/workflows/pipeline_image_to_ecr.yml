@@ -14,7 +14,7 @@ jobs:
 
       AWS_REGION: us-east-1
       ECR_REGISTRY: 992382591031.dkr.ecr.eu-west-3.amazonaws.com/iberialuxuryimages129
-      ECR_REPOSITORY: iberialuxuryimages129
+      ECR_REPOSITORY: iberiaimage
      
 
     steps:
