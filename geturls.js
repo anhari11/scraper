@@ -7,7 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const https = require('https');
 
-// setup
+
 const sqsClient = new SQSClient({ region: 'eu-north-1' });
 const s3Client = new S3Client({ region: 'eu-north-1' });
 const prisma = new PrismaClient();
@@ -19,7 +19,7 @@ if (!fs.existsSync(logPath)) fs.writeFileSync(logPath, '');
 const logToFile = msg => fs.appendFileSync(logPath, `${new Date().toISOString()} - ${msg}\n`);
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-// image upload to S3
+
 async function uploadToS3(url, key) {
   try {
     const response = await new Promise((resolve, reject) => {
