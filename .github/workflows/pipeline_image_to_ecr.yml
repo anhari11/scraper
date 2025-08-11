@@ -2,7 +2,7 @@ name: Build and deploy image to ECR (AWS)
 
 on:
   push:
-    branches: [main]
+    branches: [master]
 
 jobs:
   build_deploy:
@@ -16,7 +16,7 @@ jobs:
 
     steps:
       - name: Checkout code
-      
+
         uses: actions/checkout@v3
       
       - name: Debug AWS secrets
