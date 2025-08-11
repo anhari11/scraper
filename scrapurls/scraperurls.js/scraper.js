@@ -1,13 +1,14 @@
 const { chromium } = require('playwright');
 const AWS = require('aws-sdk');
 
-// Create SQS client (no keys needed if running in EKS with IRSA)
-const sqs = new AWS.SQS({ region: 'us-east-1' });
+
+const sqs = new AWS.SQS({ region: 'eu-west-3' });
 
 (async () => {
   const browser = await chromium.launch({
     headless: true,
     slowMo: 100,
+    
   });
 
   const context = await browser.newContext({
@@ -19,7 +20,7 @@ const sqs = new AWS.SQS({ region: 'us-east-1' });
   const page = await context.newPage();
   const allPropertyUrls = new Set();
   const MAX_PAGES = 5000;
-  const QUEUE_URL = 'https://sqs.us-east-1.amazonaws.com/992382591031/quequescraper.fifo';
+  const QUEUE_URL = 'https://sqs.eu-west-3.amazonaws.com/992382591031/quequescraper.fifo';
 
   console.log('Starting scraping process...');
 
