@@ -1,7 +1,7 @@
 name: Build and deploy image to ECR (AWS)
 
 on:
-    
+
   push:
     branches: [master]
 
@@ -9,9 +9,11 @@ jobs:
   build_deploy:
     runs-on: ubuntu-latest
 
+
     env:
+        
       AWS_REGION: us-east-1
-      ECR_REGISTRY: 992382591031.dkr.ecr.us-east-1.amazonaws.com/iberialuxe123
+      ECR_REGISTRY: 992382591031.dkr.ecr.us-east-1.amazonaws.com
       ECR_REPOSITORY: iberialuxe123
      
 
