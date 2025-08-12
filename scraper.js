@@ -14,7 +14,9 @@ const s3Client = new S3Client({
 });
 
 
-const queueUrl = 'https://sqs.eu-west-3.amazonaws.com/992382591031/quequescraper.fifo';
+const queueUrl = 'https://sqs.eu-west-3.amazonaws.com/992382591031/pol';
+
+
 const outputDir = 'luxury_estate_properties';
 const propertiesJsonPath = path.join(outputDir, 'properties.json');
 const S3_BUCKET = 'iberialuxecdn1';

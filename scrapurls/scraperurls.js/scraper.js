@@ -17,10 +17,12 @@ const sqs = new AWS.SQS({ region: 'eu-west-3' });
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
   });
 
+
+  
   const page = await context.newPage();
   const allPropertyUrls = new Set();
   const MAX_PAGES = 5000;
-  const QUEUE_URL = 'https://sqs.eu-west-3.amazonaws.com/992382591031/quequescraper.fifo';
+  const QUEUE_URL = 'https://sqs.eu-west-3.amazonaws.com/992382591031/pol';
 
   console.log('Starting scraping process...');
 
@@ -66,14 +68,13 @@ const sqs = new AWS.SQS({ region: 'eu-west-3' });
           allPropertyUrls.add(propertyUrl);
 
           try {
-            await sqs
-              .sendMessage({
-                QueueUrl: QUEUE_URL,
-                MessageBody: propertyUrl,
-                MessageGroupId: 'scraper-group', // FIFO group
-                MessageDeduplicationId: `${propertyUrl}-${Date.now()}`, // must be unique
-              })
-              .promise();
+            await sqs.sendMessage({
+  QueueUrl: QUEUE_URL,
+  MessageBody: JSON.stringify({
+    url: propertyUrl,
+    urlNumber: currentPage  // Or another unique identifier
+  }),
+}).promise();
 
             console.log(`Sent to SQS: ${propertyUrl}`);
           } catch (err) {
